@@ -177,6 +177,19 @@ textarea:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
 .alts button.on{border-color:var(--accent);color:var(--accent)}
 .hintline{font-size:12.5px;color:var(--muted);margin-top:8px}
 input.q{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;font:inherit;font-size:16px;background:#fffefc}
+
+/* search */
+.sform{padding:0 16px 4px}
+.sform input.q{-webkit-appearance:none;appearance:none}
+.sform input.q:focus{outline:2px solid var(--accent-soft);border-color:var(--accent)}
+#sKinds{padding:10px 16px 6px}
+#sKinds button.on{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.scount{padding:2px 16px 10px;font-size:13px;color:var(--muted)}
+.sres{cursor:pointer}
+.sres .snip{font-size:13.5px;color:var(--ink);margin-top:4px;line-height:1.45}
+.sres .snip small{display:block;font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:1px}
+mark{background:#f6dcc9;color:inherit;border-radius:3px;padding:0 1px}
+.smore{display:block;margin:14px auto 20px}
 </style>
 </head>
 <body>
@@ -187,6 +200,13 @@ input.q{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;
     <div id="installTip"></div>
     <div id="feed"></div>
     <div class="sentinel" id="sentinel">Gathering more threads…</div>
+  </section>
+  <section class="view" id="v-search">
+    <div class="sechead"><h2>Search</h2><p>Find a piece by its name, maker, place, material, or any word you remember reading.</p></div>
+    <form class="sform" id="sForm" action="#" onsubmit="return false"><input class="q" id="sIn" type="search" placeholder="e.g. Bayeux, indigo, quilt, Peru" enterkeyhint="search" autocomplete="off" autocorrect="off" spellcheck="false"></form>
+    <div class="prompts" id="sKinds"></div>
+    <div class="scount" id="sCount"></div>
+    <div id="sList"></div>
   </section>
   <section class="view" id="v-saved">
     <div class="sechead"><h2>Loved</h2><p>Pieces you've hearted. Double-tap any image in the feed to add it.</p></div>
@@ -205,6 +225,7 @@ input.q{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px;
 
 <nav class="tabs"><div class="in">
   <button data-v="feed" class="on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Feed</button>
+  <button data-v="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m20 20-4.6-4.6"/></svg>Search</button>
   <button data-v="saved"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.5s-8-4.6-8-10.5A4.5 4.5 0 0 1 12 7.2 4.5 4.5 0 0 1 20 10c0 5.9-8 10.5-8 10.5z"/></svg>Loved</button>
   <button data-v="journal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h11a3 3 0 0 1 3 3v13H8a3 3 0 0 1-3-3z"/><path d="M5 17a3 3 0 0 1 3-3h11M9 8h6"/></svg>Journal</button>
 </div></nav>
@@ -414,6 +435,7 @@ document.querySelectorAll("nav.tabs button").forEach(b=>b.onclick=()=>{
   document.querySelectorAll("nav.tabs button").forEach(x=>x.classList.toggle("on",x===b));
   document.querySelectorAll(".view").forEach(x=>x.classList.toggle("on",x.id==="v-"+v));
   if(v==="saved")renderSaved();if(v==="journal")renderJournal();
+  if(v==="search"){renderSearch();if(!$("#sIn").value)setTimeout(()=>$("#sIn").focus(),60)}
   window.scrollTo(0,0);
 });
 function thumbStyle(id){const r=imgCache[id];return r?`background-image:url('${r.src.replace(/'/g,"%27")}')`:""}
@@ -641,6 +663,76 @@ function openAsk(a){
   $("#qLook").onclick=()=>{const v=qi.value.trim();if(!v){toast("Type a word or name first");return}lookUp(v,a)};
   qi.addEventListener("keydown",e=>{if(e.key==="Enter")$("#qAsk").click()});
 }
+
+/* ---------- search ---------- */
+const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+const S_FIELDS=[["title",8],["artist",5],["place",4],["medium",4],["date",3],["about",1],["artistBio",1]];
+const S_SNIP=[["about",a=>kindOf(a).h1],["artistBio",a=>kindOf(a).h2]];
+let sKind="all",sShown=40,sT=null;
+function sTerms(q){return norm(q).split(/[^a-z0-9ʻ'’-]+/).filter(Boolean)}
+function jText(id){return (journal[id]||[]).map(e=>e.text).join(" \n ")}
+function searchArt(q){
+  const terms=sTerms(q),pool=ART.filter(a=>sKind==="all"||a.kind===sKind);
+  if(!terms.length)return sKind==="all"?[]:pool.slice().sort((x,y)=>x.title.localeCompare(y.title)).map(a=>({a}));
+  const out=[];
+  for(const a of pool){
+    const jt=norm(jText(a.id));let score=0,ok=true;
+    for(const t of terms){
+      let s=0;
+      for(const[f,w] of S_FIELDS){const v=norm(a[f]),i=v.indexOf(t);if(i>-1)s+=w+((i===0||/[^a-z0-9]/.test(v[i-1]))?w:0)}
+      if(jt.includes(t))s+=2;
+      if(!s){ok=false;break}score+=s;
+    }
+    if(ok)out.push({a,score});
+  }
+  return out.sort((x,y)=>y.score-x.score);
+}
+function markText(text,terms){
+  const n=norm(text);
+  if(n.length!==text.length||!terms.length)return esc(text);
+  const hit=new Array(text.length).fill(false);
+  terms.forEach(t=>{let i=n.indexOf(t);while(i>-1){for(let k=i;k<i+t.length;k++)hit[k]=true;i=n.indexOf(t,i+t.length)}});
+  let s="",on=false;
+  for(let i=0;i<text.length;i++){if(hit[i]!==on){s+=on?"</mark>":"<mark>";on=hit[i]}s+=esc(text[i])}
+  return s+(on?"</mark>":"");
+}
+function snippet(a,terms){
+  if(!terms.length)return "";
+  const head=norm([a.title,a.artist,a.place,a.medium,a.date].join(" "));
+  const srcs=[...S_SNIP.map(([f,lab])=>[a[f],lab(a)]),[jText(a.id),"Your journal"]];
+  for(const t of terms){
+    for(const[txt,lab] of srcs){
+      const i=norm(txt).indexOf(t);if(i<0)continue;
+      if(head.includes(t)&&lab!=="Your journal"&&terms.every(x=>head.includes(x)))return "";
+      let st=Math.max(0,i-70),en=Math.min(txt.length,i+t.length+110);
+      if(st>0){const sp=txt.indexOf(" ",st);if(sp>-1&&sp<i)st=sp+1}
+      if(en<txt.length){const sp=txt.lastIndexOf(" ",en);if(sp>i+t.length)en=sp}
+      return `<div class="snip"><small>${esc(lab)}</small>${st>0?"…":""}${markText(txt.slice(st,en),terms)}${en<txt.length?"…":""}</div>`;
+    }
+  }
+  return "";
+}
+const sThumbIO=new IntersectionObserver(es=>es.forEach(e=>{if(!e.isIntersecting)return;sThumbIO.unobserve(e.target);const id=e.target.dataset.th,a=byId[id];if(a&&!imgCache[id])resolveImg(a).then(()=>{e.target.style.cssText=thumbStyle(id)})}),{rootMargin:"300px 0px"});
+function renderKinds(){
+  const counts={all:ART.length};ART.forEach(a=>counts[a.kind]=(counts[a.kind]||0)+1);
+  const ks=["all","fiber","painting","technique","artist","history","dye","tool"].filter(k=>counts[k]);
+  $("#sKinds").innerHTML=ks.map(k=>`<button data-sk="${k}" class="${k===sKind?"on":""}">${k==="all"?"Everything":KIND[k].label} <span style="opacity:.6">${counts[k]}</span></button>`).join("");
+}
+function renderSearch(){
+  if(!ART.length){$("#sCount").textContent="Loading posts…";return}
+  renderKinds();
+  const q=$("#sIn").value.trim(),terms=sTerms(q),res=searchArt(q);
+  if(!terms.length&&sKind==="all"){$("#sCount").textContent=`Search all ${ART.length} posts, or tap a type above to browse.`;$("#sList").innerHTML="";return}
+  $("#sCount").textContent=res.length?`${res.length} ${res.length===1?"post":"posts"}${terms.length?` for “${q}”`:""}`:`Nothing found for “${q}”. Try a shorter word or a different spelling.`;
+  const list=res.slice(0,sShown);
+  $("#sList").innerHTML=list.map(({a})=>`<div class="jitem sres" data-open="${a.id}"><div class="th" data-th="${a.id}" style="${thumbStyle(a.id)}"></div><div style="min-width:0;flex:1"><div class="t">${markText(a.title,terms)}${isNew(a)?'<span class="newtag">New</span>':""}</div><div class="d">${markText(a.artist,terms)} · ${markText(a.date,terms)}</div><div class="d">${markText(a.place,terms)} · ${markText(a.medium,terms)}</div>${snippet(a,terms)}</div></div>`).join("")
+    +(res.length>sShown?`<button class="btn smore" id="sMore">Show more (${res.length-sShown} left)</button>`:"");
+  $("#sList").querySelectorAll("[data-th]").forEach(el=>{if(!imgCache[el.dataset.th])sThumbIO.observe(el)});
+  const m=$("#sMore");if(m)m.onclick=()=>{sShown+=40;renderSearch()};
+}
+$("#sIn").addEventListener("input",()=>{clearTimeout(sT);sT=setTimeout(()=>{sShown=40;renderSearch()},140)});
+$("#sForm").addEventListener("submit",()=>$("#sIn").blur());
+$("#sKinds").addEventListener("click",e=>{const b=e.target.closest("[data-sk]");if(!b)return;sKind=b.dataset.sk===sKind&&sKind!=="all"?"all":b.dataset.sk;sShown=40;renderSearch()});
 
 /* ---------- install tip (iPhone Safari, not yet on Home Screen) ---------- */
 (function(){
