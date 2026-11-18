@@ -235,7 +235,7 @@ async function wikiImg(a){
   const u="https://en.wikipedia.org/w/api.php?action=query&format=json&origin=*&redirects=1&prop=pageimages&piprop=thumbnail|name&pithumbsize=1280&titles="+encodeURIComponent(a.w);
   const j=await (await fetch(u)).json();
   const p=Object.values((j.query&&j.query.pages)||{}).find(p=>p.thumbnail);
-  if(!p||!matches(a,p.pageimage))return null;
+  if(!p||/(^|[^a-z])(map|locator|location|flag|coat_of_arms|logo|seal)([^a-z]|$)/i.test(p.pageimage||"")||/\.svg$/i.test(p.pageimage||""))return null;
   return {src:p.thumbnail.source,credit:"https://en.wikipedia.org/wiki/File:"+encodeURIComponent(p.pageimage||"")};
 }
 async function fileImg(name){
